@@ -1,20 +1,32 @@
-
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
+from pymongo import MongoClient
+from bson import ObjectId
 import random
 import time
 
 app = Flask(__name__)
 CORS(app)
 
-transformer_history = {i: [] for i in range(1, 6)}
-fault_logs = []
-saved_states = []
+# ===============================
+# 🔗 MongoDB Connection
+# ===============================
+client = MongoClient("mongodb+srv://admin:admin123@cluster0.wrvkipm.mongodb.net/?retryWrites=true&w=majority")
+db = client["transformer_db"]
 
+transformers_collection = db["transformers"]
+fault_logs_collection = db["fault_logs"]
+saved_states_collection = db["saved_states"]
+
+# ===============================
+# ⚙️ GLOBAL VARIABLES
+# ===============================
 last_fault_time = 0
 current_fault_transformer = None
 
-
+# ===============================
+# 🔥 GENERATE DATA
+# ===============================
 def generate_transformer_data(tid):
     global last_fault_time, current_fault_transformer
 
@@ -25,14 +37,17 @@ def generate_transformer_data(tid):
         current_fault_transformer = random.randint(1, 5)
         last_fault_time = current_time
 
-    # 🎯 FIXED BASE OPERATING POINT
     BASE_TEMP = 65
     BASE_LOAD = 50
     BASE_OIL = 85
 
-    # 🔹 Get previous or initialize
-    if transformer_history[tid]:
-        prev = transformer_history[tid][-1]
+    # 🔹 Get last value from DB
+    prev = transformers_collection.find_one(
+        {"id": tid},
+        sort=[("time", -1)]
+    )
+
+    if prev:
         temperature = prev["temperature"]
         load = prev["load"]
         oil = prev["oil"]
@@ -41,32 +56,23 @@ def generate_transformer_data(tid):
         load = BASE_LOAD
         oil = BASE_OIL
 
-    # ===============================
-    # 🔥 FAULT BEHAVIOR (CONTROLLED)
-    # ===============================
+    # 🔥 FAULT BEHAVIOR
     if tid == current_fault_transformer:
-        # steady rise → like overload heating
         temperature += 3
         load += 4
         oil -= 0.5
-
-    # ===============================
-    # ✅ NORMAL BEHAVIOR (STABLE)
-    # ===============================
     else:
-        # return to base smoothly
+        # ✅ NORMAL BEHAVIOR
         temperature += (BASE_TEMP - temperature) * 0.15
         load += (BASE_LOAD - load) * 0.15
         oil += (BASE_OIL - oil) * 0.1
 
-    # Clamp values
+    # Clamp
     temperature = round(max(50, min(100, temperature)), 2)
     load = round(max(20, min(100, load)), 2)
     oil = round(max(40, min(100, oil)), 2)
 
-    # ===============================
-    # 🎯 FIXED THRESHOLD LOGIC
-    # ===============================
+    # 🎯 STATUS
     if temperature > 90 or load > 95:
         status = "Critical"
     elif temperature > 75 or load > 80:
@@ -74,7 +80,6 @@ def generate_transformer_data(tid):
     else:
         status = "Healthy"
 
-    # Health calculation
     health = int(100 - (temperature * 0.4 + load * 0.3 + (100 - oil) * 0.3))
 
     data = {
@@ -87,50 +92,91 @@ def generate_transformer_data(tid):
         "time": int(current_time)
     }
 
-    transformer_history[tid].append(data)
+    # 💾 STORE
+    transformers_collection.insert_one(data)
 
-    if len(transformer_history[tid]) > 20:
-        transformer_history[tid].pop(0)
-
-    # Log only real critical events
+    # 🚨 FAULT LOG
     if status == "Critical":
-        fault_logs.append(data)
+        fault_logs_collection.insert_one(data)
 
     return data
-# 🔹 MAIN DASHBOARD
+
+# ===============================
+# 📊 MAIN DASHBOARD
+# ===============================
 @app.route("/api/transformers")
 def get_transformers():
-    return jsonify({
-        "transformers": [generate_transformer_data(i) for i in range(1, 6)]
-    })
 
+    data = []
 
-# 🔹 DETAILS PAGE
+    for i in range(1, 6):
+        new_data = generate_transformer_data(i)
+
+        # 🔥 (SAFE CHECK – usually not needed but kept)
+        if "_id" in new_data:
+            new_data["_id"] = str(new_data["_id"])
+
+        data.append(new_data)
+
+    return jsonify({"transformers": data})
+
+# ===============================
+# 📈 DETAILS PAGE
+# ===============================
 @app.route("/api/transformer/<int:tid>")
 def get_transformer_details(tid):
+
     generate_transformer_data(tid)
 
+    history = list(
+        transformers_collection
+        .find({"id": tid})
+        .sort("time", -1)
+        .limit(20)
+    )
+
+    for h in history:
+        h["_id"] = str(h["_id"])
+
     return jsonify({
-        "current": transformer_history[tid][-1],
-        "history": transformer_history[tid]
+        "current": history[0] if history else None,
+        "history": history[::-1]
     })
 
-
-# 🔹 LOGS
+# ===============================
+# 📜 FAULT LOGS
+# ===============================
 @app.route("/api/faultlogs")
 def get_fault_logs():
-    return jsonify(fault_logs)
 
+    logs = list(
+        fault_logs_collection
+        .find()
+        .sort("time", -1)
+    )
 
-# 🔹 SAVE STATE
+    for log in logs:
+        log["_id"] = str(log["_id"])
+
+    return jsonify(logs)
+
+# ===============================
+# 💾 SAVE STATE
+# ===============================
 @app.route("/api/save_state", methods=["POST"])
 def save_state():
 
     snapshot = []
 
     for i in range(1, 6):
-        if transformer_history[i]:
-            snapshot.append(transformer_history[i][-1])
+        last = transformers_collection.find_one(
+            {"id": i},
+            sort=[("time", -1)]
+        )
+
+        if last:
+            last["_id"] = str(last["_id"])
+            snapshot.append(last)
         else:
             snapshot.append({
                 "id": i,
@@ -146,24 +192,39 @@ def save_state():
         "transformers": snapshot
     }
 
-    saved_states.append(data)
+    saved_states_collection.insert_one(data)
 
     return jsonify({"message": "saved"})
 
-# 🔹 GET SAVED
+# ===============================
+# 📂 GET SAVED STATES
+# ===============================
 @app.route("/api/saved_states")
 def get_saved_states():
-    return jsonify(saved_states)
 
+    states = list(
+        saved_states_collection
+        .find()
+        .sort("time", -1)
+    )
 
-# 🔹 DELETE
-@app.route("/api/delete_state/<int:index>", methods=["DELETE"])
-def delete_state(index):
-    if 0 <= index < len(saved_states):
-        saved_states.pop(index)
-        return jsonify({"message": "deleted"})
-    return jsonify({"error": "invalid"})
+    for s in states:
+        s["_id"] = str(s["_id"])
 
+    return jsonify(states)
 
+# ===============================
+# ❌ DELETE STATE
+# ===============================
+@app.route("/api/delete_state/<id>", methods=["DELETE"])
+def delete_state(id):
+
+    saved_states_collection.delete_one({"_id": ObjectId(id)})
+
+    return jsonify({"message": "deleted"})
+
+# ===============================
+# ▶️ RUN SERVER
+# ===============================
 if __name__ == "__main__":
-    app.run(debug=True)
+   app.run(host="0.0.0.0", port=5000, debug=True)

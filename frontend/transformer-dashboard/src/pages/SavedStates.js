@@ -8,7 +8,7 @@ function SavedStates() {
   const [states, setStates] = useState([]);
 
   const fetchStates = () => {
-    axios.get("http://127.0.0.1:5000/api/saved_states")
+    axios.get(" 10.249.64.248:5000/api/saved_states")
       .then(res => {
         console.log(res.data); // 🔍 DEBUG
         setStates(res.data);   // ✅ correct

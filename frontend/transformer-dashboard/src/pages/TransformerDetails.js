@@ -1,11 +1,10 @@
-
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { useParams, Link } from "react-router-dom";
 
+import HealthGauge from "../components/HealthGauge";
 import TemperatureGraph from "../components/TemperatureGraph";
 import HealthGraph from "../components/HealthGraph";
-import HealthGauge from "../components/HealthGauge";
 
 function TransformerDetails() {
 
@@ -14,49 +13,90 @@ function TransformerDetails() {
 
   useEffect(() => {
 
-    const fetchData = () => {
-      axios.get(`http://127.0.0.1:5000/api/transformer/${id}`)
-        .then(res => setData(res.data))
-        .catch(err => console.log(err));
+    const fetchData = async () => {
+      try {
+        console.log("Fetching transformer ID:", id);
+
+        const res = await axios.get(`http://10.249.64.248:5000/api/transformer/${id}`);
+
+        console.log("API Response:", res.data);
+
+        setData(res.data);
+      } catch (err) {
+        console.error("DETAIL FETCH ERROR:", err);
+      }
     };
 
+    // initial load
     fetchData();
-    const interval = setInterval(fetchData, 3000);
+
+    // 🔥 LIVE UPDATE every 2 sec
+    const interval = setInterval(fetchData, 2000);
 
     return () => clearInterval(interval);
 
   }, [id]);
 
-  if (!data) return <div style={{ color: "white" }}>Loading...</div>;
-
-  const current = data.current;
-  const history = data.history;
+  // ✅ SAFETY CHECK (no crash)
+  if (!data || !data.current) {
+    return (
+      <p style={{
+        color: "white",
+        padding: "40px",
+        fontSize: "18px"
+      }}>
+        ⏳ Loading details...
+      </p>
+    );
+  }
 
   return (
-    <div style={{ padding: "40px", background: "#0f172a", minHeight: "100vh", color: "white" }}>
+    <div style={{
+      padding: "40px",
+      background: "#0f172a",
+      minHeight: "100vh",
+      color: "white"
+    }}>
 
-      <Link to="/">← Back</Link>
+      {/* 🔙 BACK */}
+      <Link to="/" style={{ color: "#38bdf8" }}>
+        ← Back
+      </Link>
 
+      {/* 🔥 TITLE */}
       <h1 style={{ marginTop: "20px" }}>
-        ⚡ Transformer {id} Detailed View
+        Transformer {id} Details
       </h1>
 
-      <p>Status: {current.status}</p>
-      <p>Temperature: {current.temperature} °C</p>
-      <p>Load: {current.load} %</p>
-      <p>Oil Level: {current.oil} %</p>
-      <p>Health Score: {current.health}</p>
+      {/* 🔹 CURRENT DATA */}
+      <div style={{
+        background: "#1e293b",
+        padding: "20px",
+        borderRadius: "10px",
+        marginTop: "20px"
+      }}>
+        <p>Status: {data.current.status}</p>
+        <p>Temperature: {data.current.temperature} °C</p>
+        <p>Load: {data.current.load} %</p>
+        <p>Oil: {data.current.oil} %</p>
+        <p>Health: {data.current.health}</p>
+      </div>
 
-      <hr style={{ margin: "30px 0" }} />
+      {/* 🔥 HEALTH GAUGE */}
+      <div style={{ marginTop: "30px" }}>
+        <HealthGauge health={data.current.health} />
+      </div>
 
-      {/* Temperature Graph */}
-      <TemperatureGraph history={history} />
-
-      {/* Health Graph */}
-      <HealthGraph history={history} />
-
-      {/* Health Gauge */}
-      <HealthGauge health={current.health} />
+      {/* 🔥 GRAPHS */}
+      <div style={{
+        display: "flex",
+        gap: "40px",
+        flexWrap: "wrap",
+        marginTop: "40px"
+      }}>
+        <TemperatureGraph history={data.history || []} />
+        <HealthGraph history={data.history || []} />
+      </div>
 
     </div>
   );

@@ -10,7 +10,7 @@ function FaultLogs() {
   useEffect(() => {
 
     const fetchLogs = () => {
-      axios.get("http://127.0.0.1:5000/api/faultlogs")
+      axios.get("http://10.249.64.248:5000/api/faultlogs")
         .then(res => setLogs(res.data))
         .catch(err => console.log(err));
     };

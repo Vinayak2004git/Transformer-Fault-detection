@@ -1,10 +1,12 @@
-
 import React from "react";
 import GaugeChart from "react-gauge-chart";
 
 function HealthGauge({ health }) {
 
-  const percent = health / 100;
+  // ✅ Safety (prevents crash if undefined)
+  const safeHealth = typeof health === "number" ? health : 0;
+
+  const percent = safeHealth / 100;
 
   return (
     <div style={{ width: "350px", marginTop: "40px" }}>
@@ -18,10 +20,11 @@ function HealthGauge({ health }) {
         colors={["#ef4444", "#facc15", "#22c55e"]}
         arcWidth={0.3}
         textColor="#ffffff"
+        animate={true} // 🔥 smooth animation
       />
 
       <p style={{ textAlign: "center", marginTop: "10px" }}>
-        Health Score: {health}
+        Health Score: {safeHealth}
       </p>
 
     </div>

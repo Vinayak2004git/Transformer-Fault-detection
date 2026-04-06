@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import { Link } from "react-router-dom";
@@ -19,7 +18,7 @@ function Dashboard() {
     audioRef.current.loop = true;
   }, []);
 
-  // 🔓 Unlock audio (IMPORTANT)
+  // 🔓 Unlock audio
   useEffect(() => {
     const unlockAudio = () => {
       if (!audioRef.current) return;
@@ -29,11 +28,8 @@ function Dashboard() {
           audioRef.current.pause();
           audioRef.current.currentTime = 0;
           setAudioEnabled(true);
-          console.log("✅ Audio unlocked");
         })
-        .catch(() => {
-          console.log("❌ Click again to enable sound");
-        });
+        .catch(() => {});
 
       window.removeEventListener("click", unlockAudio);
     };
@@ -41,43 +37,50 @@ function Dashboard() {
     window.addEventListener("click", unlockAudio);
   }, []);
 
-  // 🔄 Fetch data + control sound
+  // 🔄 FETCH DATA FROM BACKEND (FIXED)
   useEffect(() => {
 
-    const fetchData = () => {
-      axios.get("http://127.0.0.1:5000/api/transformers")
-        .then(res => {
+    const fetchData = async () => {
+      try {
+        const res = await axios.get("http://10.249.64.248:5000/api/transformers");
 
-          const data = res.data.transformers || res.data;
-          if (!Array.isArray(data)) return;
+        // ✅ FIX: always take correct format
+        const data = res.data.transformers;
 
-          const hasCritical = data.some(t => t.status === "Critical");
+        if (!data || !Array.isArray(data)) return;
 
-          // 🔊 PLAY SOUND
-          if (hasCritical && !prevCriticalRef.current && audioEnabled && !isMuted) {
-            if (audioRef.current) {
-              audioRef.current.currentTime = 0;
-              audioRef.current.play().catch(() => {});
-            }
+        const hasCritical = data.some(t => t.status === "Critical");
+
+        // 🔊 PLAY SOUND
+        if (hasCritical && !prevCriticalRef.current && audioEnabled && !isMuted) {
+          if (audioRef.current) {
+            audioRef.current.currentTime = 0;
+            audioRef.current.play().catch(() => {});
           }
+        }
 
-          // 🔇 STOP SOUND
-          if (!hasCritical && prevCriticalRef.current) {
-            if (audioRef.current) {
-              audioRef.current.pause();
-              audioRef.current.currentTime = 0;
-            }
+        // 🔇 STOP SOUND
+        if (!hasCritical && prevCriticalRef.current) {
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
           }
+        }
 
-          prevCriticalRef.current = hasCritical;
-          setTransformers(data);
+        prevCriticalRef.current = hasCritical;
 
-        })
-        .catch(err => console.log(err));
+        // ✅ UPDATE STATE (IMPORTANT FIX)
+        setTransformers([...data]);
+
+      } catch (err) {
+        console.error("API ERROR:", err);
+      }
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 3000);
+
+    const interval = setInterval(fetchData, 2000); // 🔥 faster real-time
+
     return () => clearInterval(interval);
 
   }, [audioEnabled, isMuted]);
@@ -135,7 +138,7 @@ function Dashboard() {
       </div>
 
       {/* ALERT */}
-      {transformers.some(t => t.status === "Critical") && (
+      {transformers.length > 0 && transformers.some(t => t.status === "Critical") && (
         <div style={{
           marginTop: "20px",
           padding: "15px",
@@ -160,42 +163,35 @@ function Dashboard() {
           </button>
         </Link>
 
-
         
-        {/* 🔇 MUTE */}
-        <button onClick={() => {
-          if (!isMuted && audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current.currentTime = 0;
-          }
-          setIsMuted(!isMuted);
-        }}>
-          {isMuted ? "🔇 Muted" : "🔊 Sound ON"}
-        </button>
 
       </div>
 
       {/* CARDS */}
       <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
-        {transformers.map(t => (
-          <div key={t.id} style={{
-            background: "#1e293b",
-            padding: "20px",
-            borderRadius: "10px",
-            width: "220px",
-            borderLeft: `6px solid ${getBorderColor(t.status)}`,
-            boxShadow: getGlow(t.status)
-          }}>
-            <h2>Transformer {t.id}</h2>
-            <p>Status: {t.status}</p>
-            <p>Temp: {t.temperature} °C</p>
-            <p>Load: {t.load} %</p>
+        {transformers.length === 0 ? (
+          <p>Loading transformers...</p>
+        ) : (
+          transformers.map(t => (
+            <div key={t.id} style={{
+              background: "#1e293b",
+              padding: "20px",
+              borderRadius: "10px",
+              width: "220px",
+              borderLeft: `6px solid ${getBorderColor(t.status)}`,
+              boxShadow: getGlow(t.status)
+            }}>
+              <h2>Transformer {t.id}</h2>
+              <p>Status: {t.status}</p>
+              <p>Temp: {t.temperature} °C</p>
+              <p>Load: {t.load} %</p>
 
-            <Link to={`/transformer/${t.id}`}>
-              <button style={{ marginTop: "10px" }}>View Details</button>
-            </Link>
-          </div>
-        ))}
+              <Link to={`/transformer/${t.id}`}>
+                <button style={{ marginTop: "10px" }}>View Details</button>
+              </Link>
+            </div>
+          ))
+        )}
       </div>
 
     </div>
